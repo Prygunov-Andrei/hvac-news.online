@@ -6,10 +6,13 @@ const isDevelopment = import.meta.env.DEV;
 
 // Функция для получения базового URL (с поддержкой переопределения из localStorage)
 const getBaseUrl = (): string => {
-  // Проверяем, есть ли сохраненный URL в localStorage
-  const savedUrl = localStorage.getItem('api_base_url');
-  if (savedUrl) {
-    return savedUrl;
+  // ВАЖНО: localStorage override полезен в dev, но в продакшне он часто остается
+  // от старых тестов (ngrok/localtunnel) и ломает загрузку медиа (Mixed Content).
+  if (isDevelopment) {
+    const savedUrl = localStorage.getItem('api_base_url');
+    if (savedUrl) {
+      return savedUrl;
+    }
   }
   
   // Для локальной разработки используем localhost
@@ -18,6 +21,14 @@ const getBaseUrl = (): string => {
   }
   
   // Для продакшн/тестирования используем боевой домен или env переменную
+  // Предпочитаем текущий origin, чтобы не было рассинхрона доменов/HTTPS.
+  const origin = window.location?.origin;
+  if (origin) {
+    // На всякий случай принудительно HTTPS, если страница открыта по HTTPS.
+    const safeOrigin = window.location.protocol === 'https:' ? origin.replace('http://', 'https://') : origin;
+    return `${safeOrigin}/api`;
+  }
+
   return import.meta.env.VITE_API_URL || 'https://hvac-news.online/api';
 };
 
@@ -51,6 +62,11 @@ export const getMediaUrl = (path: string): string => {
   // Если путь уже абсолютный URL
   if (path.startsWith('http://') || path.startsWith('https://')) {
     let url = path;
+
+    // Если страница открыта по HTTPS, не тянем http:// ресурсы (иначе Mixed Content warnings).
+    if (window.location?.protocol === 'https:' && url.startsWith('http://')) {
+      url = url.replace('http://', 'https://');
+    }
     
     // Получаем текущий домен (для localhost оставляем http)
     const currentBaseUrl = getServerBaseUrl();

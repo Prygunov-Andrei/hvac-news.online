@@ -325,7 +325,7 @@ export default function ResourceDetailDialog({
   if (loading) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
           <DialogHeader>
             <DialogTitle>Загрузка источника</DialogTitle>
             <DialogDescription>Пожалуйста, подождите, идет загрузка информации об источнике...</DialogDescription>
@@ -350,7 +350,7 @@ export default function ResourceDetailDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
           <DialogHeader>
             <div className="flex items-start gap-4">
               {/* Логотип */}
@@ -387,10 +387,11 @@ export default function ResourceDetailDialog({
                     href={resource.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm text-primary hover:underline flex items-center gap-1"
+                    className="text-sm text-primary hover:underline flex items-center gap-1 min-w-0 max-w-full break-all"
+                    title={resource.url}
                   >
                     <ExternalLink className="w-3 h-3" />
-                    {resource.url}
+                    <span className="min-w-0 break-all">{resource.url}</span>
                   </a>
                   
                   {resource.section && (

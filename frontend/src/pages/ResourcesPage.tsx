@@ -9,7 +9,6 @@ import { Input } from '../components/ui/input';
 import { Globe, FolderOpen, Grid3x3, Globe2, MapPin, Sparkles, Award, Users, Plus, AlertTriangle, ArrowUpDown, Zap, Hand, Cog, Search, X } from 'lucide-react';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
 import NewsDiscoveryDialog from '../components/NewsDiscoveryDialog';
-import ResourcesGlobalDiscoveryDialog from '../components/ResourcesGlobalDiscoveryDialog';
 import ApiErrorBanner from '../components/ApiErrorBanner';
 import SourceStatisticsDashboard from '../components/statistics/SourceStatisticsDashboard';
 import ResourceForm from '../components/forms/ResourceForm';
@@ -50,6 +49,9 @@ export default function ResourcesPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   const isAdmin = user?.is_staff === true;
+  const totalDiscoverableResources = useMemo(() => {
+    return resources.filter((r) => r.source_type !== 'manual').length;
+  }, [resources]);
 
   useEffect(() => {
     loadResources();
@@ -495,7 +497,7 @@ export default function ResourcesPage() {
                                       {/* Ranking Score */}
                                       <div className="flex items-center gap-1">
                                         <span className="text-xs text-muted-foreground">
-                                          Рейтинг: {resource.statistics.ranking_score.toFixed(0)}
+                                          Рейтинг: {(resource.statistics?.ranking_score ?? 0).toFixed(0)}
                                         </span>
                                       </div>
                                     </div>
@@ -527,11 +529,10 @@ export default function ResourcesPage() {
       </div>
 
       {/* Диалог автоматического поиска новостей */}
-      <ResourcesGlobalDiscoveryDialog
+      <NewsDiscoveryDialog
         open={discoveryDialogOpen}
         onOpenChange={setDiscoveryDialogOpen}
-        resources={resources}
-        onComplete={loadResources}
+        totalResources={totalDiscoverableResources}
       />
 
       {/* Форма добавления/редактирования ресурса */}

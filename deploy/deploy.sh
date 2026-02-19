@@ -31,13 +31,17 @@ cd ..
 
 echo "==> Шаг 2: rsync кода на сервер"
 # Backend
+# ВАЖНО: rsync source = ./backend/, поэтому exclude должны быть относительно этой папки.
+# Так мы гарантируем, что медиа/venv никогда не затрутся случайно (особенно если кто-то добавит --delete).
 "${RSYNC_CMD[@]}" -avz \
-  --exclude 'backend/venv' \
-  --exclude 'backend/__pycache__' \
-  --exclude 'backend/media' \
-  --exclude 'backend/staticfiles' \
+  --exclude 'venv' \
+  --exclude '__pycache__' \
+  --exclude 'media' \
+  --exclude 'staticfiles' \
+  --exclude '.env' \
+  --exclude '.DS_Store' \
   --exclude '.git' \
-  ./backend "$REMOTE:${REMOTE_DIR}/"
+  ./backend/ "$REMOTE:${REMOTE_DIR}/backend/"
 
 # Frontend build
 "${RSYNC_CMD[@]}" -avz \

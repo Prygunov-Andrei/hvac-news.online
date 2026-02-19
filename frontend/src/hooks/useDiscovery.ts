@@ -19,23 +19,32 @@ export interface DiscoveryStatus {
   error_message?: string;
 }
 
+export interface DiscoveryStartParams {
+  configId?: number;
+  sections?: string[];
+  lastSearchDate?: string;
+}
+
 type DialogStage = 'confirm' | 'progress' | 'results';
 
 interface UseDiscoveryProps {
   open: boolean;
   totalItems: number;
+  requireConfig?: boolean;
   loadInfoFn: () => Promise<DiscoveryInfo>;
-  startDiscoveryFn: (provider?: string) => Promise<DiscoveryStatus>;
+  startDiscoveryFn: (params: DiscoveryStartParams) => Promise<DiscoveryStatus>;
 }
 
-export function useDiscovery({ open, totalItems, loadInfoFn, startDiscoveryFn }: UseDiscoveryProps) {
+export function useDiscovery({ open, totalItems, requireConfig = false, loadInfoFn, startDiscoveryFn }: UseDiscoveryProps) {
   const [stage, setStage] = useState<DialogStage>('confirm');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<DiscoveryStatus | null>(null);
   const [discoveryInfo, setDiscoveryInfo] = useState<DiscoveryInfo | null>(null);
   const [loadingInfo, setLoadingInfo] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<string>('auto');
+  const [selectedConfigId, setSelectedConfigId] = useState<number | null>(null);
+  const [selectedSections, setSelectedSections] = useState<string[]>([]);
+  const [selectedLastSearchDate, setSelectedLastSearchDate] = useState<string>('');
 
   // Сброс состояния при открытии диалога
   useEffect(() => {
@@ -44,9 +53,23 @@ export function useDiscovery({ open, totalItems, loadInfoFn, startDiscoveryFn }:
       setLoading(false);
       setError(null);
       setResults(null);
+      setSelectedConfigId(null);
+      setSelectedSections([]);
+      setSelectedLastSearchDate('');
       loadDiscoveryInfo();
     }
   }, [open]);
+
+  // Дефолт: подставляем start date из discoveryInfo (если он есть),
+  // но только если пользователь ещё не менял дату руками.
+  useEffect(() => {
+    if (!open) return;
+    if (!discoveryInfo?.period_start) return;
+    if (selectedLastSearchDate) return;
+
+    const dateStr = new Date(discoveryInfo.period_start).toISOString().split('T')[0];
+    setSelectedLastSearchDate(dateStr);
+  }, [open, discoveryInfo, selectedLastSearchDate]);
 
   const loadDiscoveryInfo = async () => {
     setLoadingInfo(true);
@@ -72,7 +95,18 @@ export function useDiscovery({ open, totalItems, loadInfoFn, startDiscoveryFn }:
     setError(null);
 
     try {
-      await startDiscoveryFn(selectedProvider);
+      if (requireConfig && !selectedConfigId) {
+        const errorMsg = 'Выберите конфигурацию поиска';
+        setError(errorMsg);
+        toast.error(`Ошибка: ${errorMsg}`);
+        return;
+      }
+
+      await startDiscoveryFn({
+        configId: selectedConfigId ?? undefined,
+        sections: selectedSections.length > 0 ? selectedSections : undefined,
+        lastSearchDate: selectedLastSearchDate || undefined,
+      });
       
       // Переходим к отображению прогресса
       setStage('progress');
@@ -125,8 +159,12 @@ export function useDiscovery({ open, totalItems, loadInfoFn, startDiscoveryFn }:
     results,
     discoveryInfo,
     loadingInfo,
-    selectedProvider,
-    setSelectedProvider,
+    selectedConfigId,
+    setSelectedConfigId,
+    selectedSections,
+    setSelectedSections,
+    selectedLastSearchDate,
+    setSelectedLastSearchDate,
     handleStartDiscovery,
     handleComplete,
     handleError,

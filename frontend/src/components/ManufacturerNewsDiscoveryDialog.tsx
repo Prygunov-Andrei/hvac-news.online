@@ -7,6 +7,8 @@ import referencesService from '../services/referencesService';
 import ManufacturerNewsDiscoveryProgress from './ManufacturerNewsDiscoveryProgress';
 import { useNavigate } from 'react-router';
 import { useDiscovery } from '../hooks/useDiscovery';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
 
 interface ManufacturerNewsDiscoveryDialogProps {
   open: boolean;
@@ -16,6 +18,7 @@ interface ManufacturerNewsDiscoveryDialogProps {
 
 export default function ManufacturerNewsDiscoveryDialog({ open, onOpenChange, totalManufacturers }: ManufacturerNewsDiscoveryDialogProps) {
   const navigate = useNavigate();
+  const todayStr = new Date().toISOString().split('T')[0];
 
   const {
     stage,
@@ -24,6 +27,8 @@ export default function ManufacturerNewsDiscoveryDialog({ open, onOpenChange, to
     results,
     discoveryInfo,
     loadingInfo,
+    selectedLastSearchDate,
+    setSelectedLastSearchDate,
     handleStartDiscovery,
     handleComplete,
     handleError,
@@ -78,14 +83,34 @@ export default function ManufacturerNewsDiscoveryDialog({ open, onOpenChange, to
                 )}
 
                 {/* Период поиска */}
-                {!loadingInfo && discoveryInfo && discoveryInfo.period_start && (
+                {!loadingInfo && discoveryInfo && (
                   <div className="flex items-start gap-3 p-3 bg-purple-50 border border-purple-200 rounded-lg">
                     <Calendar className="w-5 h-5 text-purple-600 mt-0.5" />
                     <div className="flex-1">
                       <p className="text-sm font-medium text-muted-foreground">Период поиска</p>
                       <p className="text-base font-semibold text-purple-900">
-                        с {formatDateShort(discoveryInfo.period_start)} по {formatDateShort(discoveryInfo.period_end)}
+                        с{' '}
+                        {formatDateShort(
+                          (selectedLastSearchDate
+                            ? new Date(`${selectedLastSearchDate}T00:00:00`).toISOString()
+                            : discoveryInfo.period_start) || todayStr
+                        )}{' '}
+                        по {formatDateShort(discoveryInfo.period_end || new Date().toISOString())}
                       </p>
+
+                      <div className="mt-2 space-y-2">
+                        <Label htmlFor="manufacturer-discovery-last-search-date">Дата начала периода</Label>
+                        <Input
+                          id="manufacturer-discovery-last-search-date"
+                          type="date"
+                          value={selectedLastSearchDate}
+                          max={todayStr}
+                          onChange={(e) => setSelectedLastSearchDate(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Конец периода всегда {formatDateShort(discoveryInfo.period_end || new Date().toISOString())}.
+                        </p>
+                      </div>
                     </div>
                   </div>
                 )}

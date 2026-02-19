@@ -9,13 +9,14 @@ from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
 from django.http import JsonResponse
+from django.db.models import Count
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from modeltranslation.admin import TranslationAdmin
 from .models import Manufacturer, Brand, NewsResource, NewsResourceStatistics, ManufacturerStatistics
-from news.models import NewsDiscoveryRun, NewsDiscoveryStatus
+from news.models import NewsDiscoveryRun, NewsDiscoveryStatus, SearchConfiguration
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,18 @@ class ManufacturerAdmin(TranslationAdmin):
         request.user = user
         
         if request.method == 'POST':
+            # Override даты старта периода поиска (YYYY-MM-DD).
+            last_search_date_override = None
+            last_search_date_raw = request.POST.get('last_search_date')
+            if last_search_date_raw:
+                try:
+                    last_search_date_override = datetime.strptime(last_search_date_raw, '%Y-%m-%d').date()
+                except (TypeError, ValueError):
+                    return JsonResponse({'error': 'Некорректная дата last_search_date (ожидается YYYY-MM-DD)'}, status=400)
+
+                if last_search_date_override > timezone.now().date():
+                    return JsonResponse({'error': 'Дата начала периода не может быть в будущем'}, status=400)
+
             # Получаем выбранный провайдер из POST запроса
             provider = request.POST.get('provider', 'auto')
             if provider not in ['auto', 'grok', 'anthropic', 'openai']:
@@ -179,7 +192,10 @@ class ManufacturerAdmin(TranslationAdmin):
                 def run_discovery():
                     try:
                         service = NewsDiscoveryService(user=request.user)
-                        service.discover_all_manufacturers_news(status_obj=status_obj)
+                        service.discover_all_manufacturers_news(
+                            status_obj=status_obj,
+                            last_search_date_override=last_search_date_override,
+                        )
                     except Exception as e:
                         logger.error(f"Error during manufacturers news discovery: {str(e)}")
                         status_obj.status = 'error'
@@ -199,7 +215,10 @@ class ManufacturerAdmin(TranslationAdmin):
             # Если это обычный POST - запускаем синхронно
             try:
                 service = NewsDiscoveryService(user=request.user)
-                stats = service.discover_all_manufacturers_news(status_obj=status_obj)
+                stats = service.discover_all_manufacturers_news(
+                    status_obj=status_obj,
+                    last_search_date_override=last_search_date_override,
+                )
                 
                 self.message_user(
                     request,
@@ -518,23 +537,77 @@ class NewsResourceAdmin(TranslationAdmin):
         request.user = user
         
         if request.method == 'POST':
-            # Получаем выбранный провайдер из POST запроса
-            provider = request.POST.get('provider', 'auto')
-            if provider not in ['auto', 'grok', 'anthropic', 'openai']:
-                provider = 'auto'
+            # Override даты старта периода поиска (YYYY-MM-DD).
+            # Используется только для текущего запуска, чтобы пересчитывать период в промптах.
+            last_search_date_override = None
+            last_search_date_raw = request.POST.get('last_search_date')
+            if last_search_date_raw:
+                try:
+                    last_search_date_override = datetime.strptime(last_search_date_raw, '%Y-%m-%d').date()
+                except (TypeError, ValueError):
+                    return JsonResponse({'error': 'Некорректная дата last_search_date (ожидается YYYY-MM-DD)'}, status=400)
+
+                if last_search_date_override > timezone.now().date():
+                    return JsonResponse({'error': 'Дата начала периода не может быть в будущем'}, status=400)
+
+            # Конфигурация поиска: фронтенд присылает config_id (FormData).
+            # При запуске поиска активируем выбранную конфигурацию глобально.
+            config_id_raw = request.POST.get('config_id')
+            selected_config = None
+            if config_id_raw:
+                try:
+                    config_id = int(config_id_raw)
+                except (TypeError, ValueError):
+                    config_id = None
+
+                if config_id:
+                    selected_config = SearchConfiguration.objects.filter(id=config_id).first()
+
+                if not selected_config:
+                    return JsonResponse({'error': 'Конфигурация поиска не найдена'}, status=400)
+
+            if not selected_config:
+                selected_config = SearchConfiguration.get_active()
+
+            if selected_config and not selected_config.is_active:
+                selected_config.is_active = True
+                selected_config.save()
+
+            # Фильтр по секциям (region/group) источников.
+            # Приходит с фронтенда как FormData: formData.append('sections', sectionName)
+            sections = request.POST.getlist('sections')
+            sections = [s.strip() for s in sections if s and s.strip()]
+            if 'all' in sections:
+                sections = []
+
+            resources_qs = NewsResource.objects.exclude(source_type=NewsResource.SOURCE_TYPE_MANUAL)
+            if sections:
+                resources_qs = resources_qs.filter(section__in=sections)
             
             # Создаем статус для отслеживания прогресса
-            resource_count = NewsResource.objects.count()
-            status_obj = NewsDiscoveryStatus.create_new_status(resource_count, search_type='resources', provider=provider)
+            resource_count = resources_qs.count()
+            status_provider = 'auto'
+            if selected_config and selected_config.primary_provider in ['grok', 'anthropic', 'openai', 'auto']:
+                status_provider = selected_config.primary_provider
+            status_obj = NewsDiscoveryStatus.create_new_status(
+                resource_count,
+                search_type='resources',
+                provider=status_provider,
+            )
             
             # Если это AJAX запрос - запускаем поиск в фоне и возвращаем статус
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
                 import threading
+                resources_list = list(resources_qs.order_by('id'))
                 
                 def run_discovery():
                     try:
-                        service = NewsDiscoveryService(user=request.user)
-                        service.discover_all_news(status_obj=status_obj)
+                        service = NewsDiscoveryService(user=request.user, config=selected_config)
+                        service.discover_all_news(
+                            status_obj=status_obj,
+                            resources=resources_list,
+                            last_search_date_override=last_search_date_override,
+                        )
                     except Exception as e:
                         logger.error(f"Error during news discovery: {str(e)}")
                         status_obj.status = 'error'
@@ -555,8 +628,13 @@ class NewsResourceAdmin(TranslationAdmin):
             
             # Если это обычный POST - запускаем синхронно (для совместимости)
             try:
-                service = NewsDiscoveryService(user=request.user)
-                stats = service.discover_all_news(status_obj=status_obj)
+                service = NewsDiscoveryService(user=request.user, config=selected_config)
+                resources_list = list(resources_qs.order_by('id'))
+                stats = service.discover_all_news(
+                    status_obj=status_obj,
+                    resources=resources_list,
+                    last_search_date_override=last_search_date_override,
+                )
                 
                 self.message_user(
                     request,
@@ -580,7 +658,7 @@ class NewsResourceAdmin(TranslationAdmin):
         from django.shortcuts import render
         last_search_date = NewsDiscoveryRun.get_last_search_date()
         today = timezone.now().date()
-        resource_count = NewsResource.objects.count()
+        resource_count = NewsResource.objects.exclude(source_type=NewsResource.SOURCE_TYPE_MANUAL).count()
         
         context = {
             'title': _('Поиск новостей'),
@@ -773,12 +851,28 @@ class NewsResourceAdmin(TranslationAdmin):
         
         # Количество активных источников (все NewsResource, так как нет поля is_active)
         total_resources = NewsResource.objects.count()
+
+        # Дополнительно: список секций и количество источников auto+hybrid в каждой секции.
+        # Это позволяет фронтенду показывать выбор региона без загрузки всех ресурсов.
+        resources_auto_hybrid = NewsResource.objects.exclude(source_type=NewsResource.SOURCE_TYPE_MANUAL)
+        sections_aggregated = (
+            resources_auto_hybrid
+            .values('section')
+            .annotate(total=Count('id'))
+            .order_by('section')
+        )
+        sections = []
+        for row in sections_aggregated:
+            section_name = (row.get('section') or '').strip() or 'Без раздела'
+            sections.append({'name': section_name, 'total_auto_hybrid': row.get('total', 0)})
         
         return JsonResponse({
             'last_discovery_date': last_discovery_date.isoformat() if last_discovery_date else None,
             'period_start': period_start.isoformat() if period_start else None,
             'period_end': period_end.isoformat(),
-            'total_resources': total_resources
+            'total_resources': total_resources,
+            'total_resources_auto_hybrid': resources_auto_hybrid.count(),
+            'sections': sections,
         })
     
     def url_link(self, obj):

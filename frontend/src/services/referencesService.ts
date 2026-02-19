@@ -349,16 +349,24 @@ const referencesService = {
   },
 
   // Запустить автоматический поиск новостей
-  startNewsDiscovery: async (provider?: string): Promise<NewsDiscoveryStatus> => {
+  startNewsDiscovery: async (params?: { configId?: number; sections?: string[]; lastSearchDate?: string }): Promise<NewsDiscoveryStatus> => {
     const token = localStorage.getItem('access_token');
     const language = localStorage.getItem('language') || 'ru';
     
     const url = `${API_CONFIG.BASE_URL.replace('/api', '')}/admin/references/newsresource/discover-news/`;
     
-    // Создаем FormData для отправки провайдера
+    // Создаем FormData для отправки параметров запуска
     const formData = new FormData();
-    if (provider) {
-      formData.append('provider', provider);
+    if (params?.configId) {
+      formData.append('config_id', String(params.configId));
+    }
+    if (params?.lastSearchDate) {
+      formData.append('last_search_date', params.lastSearchDate);
+    }
+    if (params?.sections && params.sections.length > 0) {
+      for (const section of params.sections) {
+        formData.append('sections', section);
+      }
     }
     
     const response = await axios.post(url, formData, {
@@ -426,18 +434,22 @@ const referencesService = {
   },
 
   // Запустить автоматический поиск новостей по производителям
-  startManufacturerNewsDiscovery: async (): Promise<ManufacturerNewsDiscoveryStatus> => {
+  startManufacturerNewsDiscovery: async (params?: { lastSearchDate?: string; configId?: number; sections?: string[] }): Promise<ManufacturerNewsDiscoveryStatus> => {
     const token = localStorage.getItem('access_token');
     const language = localStorage.getItem('language') || 'ru';
     
     const url = `${API_CONFIG.BASE_URL.replace('/api', '')}/admin/references/manufacturer/discover-manufacturers-news/`;
     
-    const response = await axios.post(url, {}, {
+    const formData = new FormData();
+    if (params?.lastSearchDate) {
+      formData.append('last_search_date', params.lastSearchDate);
+    }
+
+    const response = await axios.post(url, formData, {
       headers: {
         'Authorization': token ? `Bearer ${token}` : '',
         'Accept-Language': language,
         'X-Requested-With': 'XMLHttpRequest',
-        'Content-Type': 'application/json',
       },
       withCredentials: true,
     });

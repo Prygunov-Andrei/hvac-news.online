@@ -7,7 +7,7 @@ OpenAI GPT-5.2 с Responses API используется как резервны
 import logging
 import json
 import re
-from typing import List, Dict, Optional, Tuple
+from typing import Any, List, Dict, Optional, Tuple
 from datetime import date, timedelta
 from urllib.parse import urlparse
 from django.conf import settings
@@ -144,7 +144,12 @@ class NewsDiscoveryService:
         
         return cost
     
-    def discover_news_for_resource(self, resource: NewsResource, provider: str = 'auto') -> Tuple[int, int, Optional[str]]:
+    def discover_news_for_resource(
+        self,
+        resource: NewsResource,
+        provider: str = 'auto',
+        last_search_date_override: Optional[date] = None,
+    ) -> Tuple[int, int, Optional[str]]:
         """
         Ищет новости для одного источника.
         
@@ -155,8 +160,8 @@ class NewsDiscoveryService:
         Returns:
             Tuple[created_count, error_count, error_message]
         """
-        # Получаем период поиска
-        last_search_date = NewsDiscoveryRun.get_last_search_date()
+        # Получаем период поиска (можно override для текущего запуска)
+        last_search_date = last_search_date_override or NewsDiscoveryRun.get_last_search_date()
         today = timezone.now().date()
         
         # Формируем промпт для LLM
@@ -1242,7 +1247,12 @@ Use web search. Sources: industry publications, press releases. **Translate to R
             # Не прерываем процесс поиска из-за ошибки статистики
             logger.error(f"Error updating statistics for resource {resource.id}: {str(e)}", exc_info=True)
     
-    def discover_all_news(self, status_obj: Optional[NewsDiscoveryStatus] = None) -> Dict[str, int]:
+    def discover_all_news(
+        self,
+        status_obj: Optional[NewsDiscoveryStatus] = None,
+        resources: Optional[Any] = None,
+        last_search_date_override: Optional[date] = None,
+    ) -> Dict[str, int]:
         """
         Ищет новости для всех источников по очереди.
         При ошибке API перемещает источник в конец очереди и повторяет попытку.
@@ -1255,11 +1265,23 @@ Use web search. Sources: industry publications, press releases. **Translate to R
         Returns:
             Dict с статистикой: {'created': int, 'errors': int, 'total_processed': int, 'skipped_manual': int}
         """
-        # Получаем только источники с автоматическим или гибридным поиском
-        # Источники типа 'manual' пропускаются
-        all_resources = NewsResource.objects.all().order_by('id')
-        resources = list(all_resources.exclude(source_type=NewsResource.SOURCE_TYPE_MANUAL))
-        skipped_manual = all_resources.filter(source_type=NewsResource.SOURCE_TYPE_MANUAL).count()
+        # Можно передать подмножество ресурсов (например, фильтр по section/региону с фронтенда).
+        # В любом случае источники типа 'manual' пропускаем.
+        if resources is None:
+            all_resources = NewsResource.objects.all().order_by('id')
+            resources = list(all_resources.exclude(source_type=NewsResource.SOURCE_TYPE_MANUAL))
+            skipped_manual = all_resources.filter(source_type=NewsResource.SOURCE_TYPE_MANUAL).count()
+        else:
+            # QuerySet поддерживает exclude/order_by; иначе ожидаем Iterable[NewsResource].
+            if hasattr(resources, "exclude"):
+                qs = resources.exclude(source_type=NewsResource.SOURCE_TYPE_MANUAL).order_by('id')
+                resources = list(qs)
+            else:
+                resources = [
+                    r for r in list(resources)
+                    if getattr(r, "source_type", None) != NewsResource.SOURCE_TYPE_MANUAL
+                ]
+            skipped_manual = 0
         
         if skipped_manual > 0:
             logger.info(f"Пропущено {skipped_manual} источников типа 'manual' (требуют ручного ввода)")
@@ -1297,7 +1319,11 @@ Use web search. Sources: industry publications, press releases. **Translate to R
                 try:
                     # Используем провайдер из status_obj, если указан, иначе 'auto'
                     provider = status_obj.provider if status_obj else 'auto'
-                    created, errors, error_msg = self.discover_news_for_resource(resource, provider=provider)
+                    created, errors, error_msg = self.discover_news_for_resource(
+                        resource,
+                        provider=provider,
+                        last_search_date_override=last_search_date_override,
+                    )
                     total_created += created
                     total_errors += errors
                     
@@ -1336,7 +1362,12 @@ Use web search. Sources: industry publications, press releases. **Translate to R
     
     # ==================== МЕТОДЫ ДЛЯ ПОИСКА ПО ПРОИЗВОДИТЕЛЯМ ====================
     
-    def discover_news_for_manufacturer(self, manufacturer: Manufacturer, provider: str = 'auto') -> Tuple[int, int, Optional[str]]:
+    def discover_news_for_manufacturer(
+        self,
+        manufacturer: Manufacturer,
+        provider: str = 'auto',
+        last_search_date_override: Optional[date] = None,
+    ) -> Tuple[int, int, Optional[str]]:
         """
         Ищет новости о производителе в интернете.
         
@@ -1347,8 +1378,8 @@ Use web search. Sources: industry publications, press releases. **Translate to R
         Returns:
             Tuple[created_count, error_count, error_message]
         """
-        # Получаем период поиска
-        last_search_date = NewsDiscoveryRun.get_last_search_date()
+        # Получаем период поиска (можно override для текущего запуска)
+        last_search_date = last_search_date_override or NewsDiscoveryRun.get_last_search_date()
         today = timezone.now().date()
         
         # Формируем промпт для LLM
@@ -1787,7 +1818,11 @@ Use web search. Sources: industry publications, press releases. **Translate to R
             # Не прерываем процесс поиска из-за ошибки статистики
             logger.error(f"Error updating statistics for manufacturer {manufacturer.id}: {str(e)}", exc_info=True)
     
-    def discover_all_manufacturers_news(self, status_obj: Optional[NewsDiscoveryStatus] = None) -> Dict[str, int]:
+    def discover_all_manufacturers_news(
+        self,
+        status_obj: Optional[NewsDiscoveryStatus] = None,
+        last_search_date_override: Optional[date] = None,
+    ) -> Dict[str, int]:
         """
         Ищет новости для всех производителей по очереди.
         При ошибке API перемещает производителя в конец очереди и повторяет попытку.
@@ -1832,7 +1867,11 @@ Use web search. Sources: industry publications, press releases. **Translate to R
                 try:
                     # Используем провайдер из status_obj, если указан, иначе 'auto'
                     provider = status_obj.provider if status_obj else 'auto'
-                    created, errors, error_msg = self.discover_news_for_manufacturer(manufacturer, provider=provider)
+                    created, errors, error_msg = self.discover_news_for_manufacturer(
+                        manufacturer,
+                        provider=provider,
+                        last_search_date_override=last_search_date_override,
+                    )
                     total_created += created
                     total_errors += errors
                     
