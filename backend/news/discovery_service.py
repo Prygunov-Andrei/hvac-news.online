@@ -656,51 +656,46 @@ Use web search. Sources: industry publications, press releases. **Translate to R
     def _query_grok(self, prompt: str, domain: str = None) -> Optional[Dict]:
         """
         Запрос к Grok (xAI) API с веб-поиском.
-        Использует OpenAI-совместимый API xAI с инструментом web_search.
+        Использует Responses API xAI с инструментом web_search.
         Отслеживает токены и стоимость.
-        
+
         Args:
             prompt: Текст промпта
             domain: Домен для ограничения поиска (опционально)
         """
         if not self.grok_api_key:
             raise ValueError("Grok API key is not set")
-        
+
         start_time = time.time()
         input_tokens = 0
         output_tokens = 0
-        
+
         try:
             from openai import OpenAI
-            
+
             # xAI предоставляет OpenAI-совместимый API
             client = OpenAI(
                 api_key=self.grok_api_key,
                 base_url="https://api.x.ai/v1",
             )
-            
-            # Настройки веб-поиска из конфигурации
-            web_search_config = {
-                "max_search_results": self.max_search_results,
-                "search_context_size": self.search_context_size,
-            }
-            
-            # Если передан домен, ограничиваем поиск только этим доменом
+
+            # Настройки инструмента web_search (Responses API)
+            web_search_tool: Dict = {"type": "web_search"}
             if domain:
-                web_search_config["allowed_domains"] = [domain]
-            
-            # Запрос к Grok с веб-поиском
+                web_search_tool["allowed_domains"] = [domain]
+
             # ВАЖНО: Указываем актуальную дату, т.к. модели обучены на старых данных
             from datetime import datetime
-            current_date = datetime.now().strftime("%B %d, %Y")  # "January 22, 2026"
-            
+            current_date = datetime.now().strftime("%B %d, %Y")  # "February 26, 2026"
+
             system_prompt = self._get_system_prompt('grok').format(current_date=current_date)
-            
+
             response = None
             try:
-                response = client.chat.completions.create(
+                # Responses API (замена deprecated Live Search / chat.completions)
+                response = client.responses.create(
                     model=self.grok_model,
-                    messages=[
+                    input=[
                         {
                             "role": "system",
                             "content": system_prompt
@@ -710,20 +705,20 @@ Use web search. Sources: industry publications, press releases. **Translate to R
                             "content": prompt
                         }
                     ],
+                    tools=[web_search_tool],
                     temperature=self.temperature,
-                    timeout=self.timeout
                 )
             except Exception as e:
                 logger.error(f"Grok API call failed: {str(e)}")
                 raise
-            
-            # Извлекаем метрики токенов
+
+            # Извлекаем метрики токенов (Responses API формат)
             if response and response.usage:
-                input_tokens = response.usage.prompt_tokens or 0
-                output_tokens = response.usage.completion_tokens or 0
-            
-            # Извлекаем контент
-            content = response.choices[0].message.content.strip()
+                input_tokens = getattr(response.usage, 'input_tokens', 0) or 0
+                output_tokens = getattr(response.usage, 'output_tokens', 0) or 0
+
+            # Извлекаем контент (Responses API — output_text)
+            content = (response.output_text or "").strip()
             
             duration_ms = int((time.time() - start_time) * 1000)
             
@@ -1054,15 +1049,15 @@ Use web search. Sources: industry publications, press releases. **Translate to R
         - source_url всегда берется из resource.url (не из LLM)
         - Переводы будут добавлены при публикации через TranslationService
         """
-        # Извлекаем данные (теперь только title и summary, без source_url)
+        # Извлекаем данные
         title_ru = news_item.get('title', 'Без заголовка')
         summary_ru = news_item.get('summary', '')
-        
+
         # Определяем язык источника (для справки)
         source_language = getattr(resource, 'language', 'en') or 'en'
-        
-        # source_url ВСЕГДА берем из ресурса (не тратим токены на генерацию)
-        source_url = resource.url
+
+        # source_url: берём из ответа LLM (ссылка на конкретную статью), иначе URL ресурса
+        source_url = news_item.get('source_url') or resource.url
         
         # Создаем новость (только русский текст)
         news_post = NewsPost.objects.create(

@@ -57,9 +57,9 @@ export default function ResourcesPage() {
     loadResources();
   }, [language, showProblematicOnly, sortingMode]);
 
-  const loadResources = async () => {
+  const loadResources = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError('');
       
       const filters: { is_problematic?: boolean; ordering?: string } = {};
@@ -82,7 +82,7 @@ export default function ResourcesPage() {
       console.error('Error loading resources:', err);
       setError(err); // Сохраняем весь объект ошибки
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -540,7 +540,7 @@ export default function ResourcesPage() {
         open={resourceFormOpen}
         onOpenChange={setResourceFormOpen}
         onSuccess={() => {
-          loadResources();
+          loadResources(true);
           setSelectedResource(null);
         }}
         resource={selectedResource}
@@ -551,7 +551,7 @@ export default function ResourcesPage() {
         open={detailDialogOpen}
         onOpenChange={setDetailDialogOpen}
         resourceId={detailResourceId ?? 0}
-        onUpdate={loadResources}
+        onUpdate={() => loadResources(true)}
       />
     </MainLayout>
   );
