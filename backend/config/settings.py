@@ -43,7 +43,7 @@ DEBUG = os.getenv('DEBUG', 'True') == 'True'
 # Parse ALLOWED_HOSTS from environment or use defaults
 _allowed_hosts_str = os.getenv(
     'ALLOWED_HOSTS',
-    'localhost,127.0.0.1,hvac-news.ngrok.io,finance.ngrok.app,hvac-news.online,www.hvac-news.online',
+    'localhost,127.0.0.1,hvac-news.ngrok.io,finance.ngrok.app,hvac-news.online,www.hvac-news.online,hvac-info.com,www.hvac-info.com',
 )
 ALLOWED_HOSTS = [host.strip() for host in _allowed_hosts_str.split(',') if host.strip()]
 if DEBUG:
@@ -248,6 +248,8 @@ else:
     CORS_ALLOWED_ORIGINS = [
         'https://hvac-news.online',
         'https://www.hvac-news.online',
+        'https://hvac-info.com',
+        'https://www.hvac-info.com',
     ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -280,6 +282,8 @@ CSRF_TRUSTED_ORIGINS = [
     'https://*.figma.com',
     'https://hvac-news.online',
     'https://www.hvac-news.online',
+    'https://hvac-info.com',
+    'https://www.hvac-info.com',
 ]
 
 # Email Configuration

@@ -61,7 +61,7 @@ remote_run "systemctl restart nginx"
 
 echo "==> Настройка SSL через Certbot (можно выполнить вручную, если нужно)"
 echo "    Пример команды на сервере:"
-echo "      certbot --nginx -d hvac-news.online -d www.hvac-news.online"
+echo "      certbot --nginx -d hvac-news.online -d www.hvac-news.online -d hvac-info.com -d www.hvac-info.com"
 
 echo "==> Базовая настройка сервера завершена."
 
